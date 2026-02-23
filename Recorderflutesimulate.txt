@@ -1,0 +1,272 @@
+Recorder flute 2026
+
+
+import android.media.AudioTrack;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioAttributes;
+
+int sampleRate = 44100;
+float bpm = 90.0;
+float quarter;
+
+// ---------------- MUSIC ----------------
+boolean isPlaying = false;
+int currentNote = 0;
+long lastTime = 0;
+
+float[] melody = {
+  329.63,392.00,440.00,392.00,
+  523.25,493.88,440.00,392.00,
+  349.23,329.63,392.00,440.00,
+  392.00,523.25,493.88,440.00
+};
+
+boolean[][] fingering = {
+  {true,true,true,true,true,true,true,true},
+  {true,true,true,true,true,true,true,false},
+  {true,true,true,true,true,true,false,false},
+  {true,true,true,true,true,false,false,false},
+  {true,true,true,true,false,false,false,false},
+  {true,true,true,false,false,false,false,false},
+  {true,true,false,false,false,false,false,false},
+  {true,false,false,false,false,false,false,false},
+  {false,false,false,false,false,false,false,false},
+  {true,true,true,true,true,true,false,false},
+  {true,true,true,true,true,false,false,false},
+  {true,true,true,true,false,false,false,false},
+  {true,true,true,false,false,false,false,false},
+  {true,true,false,false,false,false,false,false},
+  {true,false,false,false,false,false,false,false},
+  {false,false,false,false,false,false,false,false}
+};
+
+// ---------------- RECORDER ----------------
+int totalHoles = 8;
+boolean[] holeClosed = new boolean[8];
+
+float recorderX, recorderY;
+boolean draggingRecorder = false;
+float dragOffsetY;
+
+// ---------------- ZOOM ----------------
+float zoom = 1.0;
+float lastPinchDist = 0;
+
+// ---------------- VERTICAL SLIDER ----------------
+float gap = 80;
+float minGap = 50;
+float maxGap = 160;
+
+float sliderX;
+float sliderTop;
+float sliderBottom;
+boolean draggingSlider = false;
+
+// ---------------- SETUP ----------------
+void setup(){
+  fullScreen();
+  quarter = 60.0/bpm;
+
+  recorderX = width/2;
+  recorderY = height/2;
+
+  for(int i=0;i<totalHoles;i++)
+    holeClosed[i] = true;
+
+  sliderX = width - 80;
+  sliderTop = height*0.25;
+  sliderBottom = height*0.75;
+}
+
+// ---------------- DRAW ----------------
+void draw(){
+  background(20,50,90);
+
+  if(isPlaying) autoPlay();
+
+  pushMatrix();
+  translate(width/2,height/2);
+  scale(zoom);
+  translate(-width/2,-height/2);
+
+  drawRecorder();
+  drawHoles();
+
+  popMatrix();
+
+  drawPlayButton();
+  drawSlider();
+}
+
+// ---------------- PLAY BUTTON ----------------
+void drawPlayButton(){
+  fill(255);
+  rectMode(CENTER);
+  rect(width/2,height-120,300,110,40);
+
+  fill(0);
+  textAlign(CENTER,CENTER);
+  textSize(50);
+  text(isPlaying?"STOP":"PLAY",width/2,height-120);
+}
+
+// ---------------- RECORDER ----------------
+void drawRecorder(){
+  rectMode(CENTER);
+  fill(210);
+  rect(recorderX,recorderY,120,height*0.7,60);
+}
+
+// ---------------- HOLES ----------------
+void drawHoles(){
+
+  float startY = recorderY - gap*3.5;
+
+  for(int i=0;i<totalHoles;i++){
+    float hx = recorderX;
+    float hy = startY + i*gap;
+
+    if(holeClosed[i]){
+      fill(60);
+      ellipse(hx,hy,80,80);
+      fill(0);
+      ellipse(hx,hy,65,65);
+    }else{
+      fill(180);
+      ellipse(hx,hy,80,80);
+      fill(255);
+      ellipse(hx,hy,65,65);
+    }
+  }
+}
+
+// ---------------- VERTICAL SLIDER ----------------
+void drawSlider(){
+
+  stroke(255);
+  strokeWeight(6);
+  line(sliderX,sliderTop,sliderX,sliderBottom);
+
+  float knobY = map(gap,minGap,maxGap,sliderBottom,sliderTop);
+
+  noStroke();
+  fill(255);
+  ellipse(sliderX,knobY,45,45);
+
+  fill(255);
+  textAlign(CENTER);
+  textSize(24);
+  text("Spacing: "+int(gap),sliderX-20,sliderTop-40);
+}
+
+// ---------------- TOUCH ----------------
+void mousePressed(){
+
+  // Play
+  if(dist(mouseX,mouseY,width/2,height-120)<150){
+    isPlaying=!isPlaying;
+    currentNote=0;
+    lastTime=millis();
+    return;
+  }
+
+  // Slider
+  float knobY = map(gap,minGap,maxGap,sliderBottom,sliderTop);
+  if(dist(mouseX,mouseY,sliderX,knobY)<30){
+    draggingSlider=true;
+    return;
+  }
+
+  // Recorder drag
+  float mx=(mouseX-width/2)/zoom+width/2;
+  float my=(mouseY-height/2)/zoom+height/2;
+
+  if(abs(mx-recorderX)<80 && abs(my-recorderY)<height*0.35){
+    draggingRecorder=true;
+    dragOffsetY=my-recorderY;
+  }
+}
+
+void mouseDragged(){
+
+  if(draggingSlider){
+    float y=constrain(mouseY,sliderTop,sliderBottom);
+    gap=map(y,sliderBottom,sliderTop,minGap,maxGap);
+  }
+
+  if(draggingRecorder){
+    recorderY=((mouseY-height/2)/zoom+height/2)-dragOffsetY;
+  }
+}
+
+void mouseReleased(){
+  draggingRecorder=false;
+  draggingSlider=false;
+}
+
+// ---------------- AUTO PLAY ----------------
+void autoPlay(){
+  if(millis()-lastTime>quarter*1000){
+
+    for(int i=0;i<totalHoles;i++)
+      holeClosed[i]=fingering[currentNote][i];
+
+    playTone(melody[currentNote],quarter);
+
+    currentNote++;
+    lastTime=millis();
+
+    if(currentNote>=melody.length){
+      isPlaying=false;
+      currentNote=0;
+    }
+  }
+}
+
+// ---------------- PINCH ZOOM ----------------
+void touchMoved(){
+  if(touches.length==2){
+    float d=dist(touches[0].x,touches[0].y,
+                 touches[1].x,touches[1].y);
+
+    if(lastPinchDist!=0){
+      zoom+= (d-lastPinchDist)*0.005;
+      zoom=constrain(zoom,0.5,3.0);
+    }
+    lastPinchDist=d;
+  }else{
+    lastPinchDist=0;
+  }
+}
+
+// ---------------- AUDIO ----------------
+void playTone(float freq,float duration){
+
+  int samples=(int)(duration*sampleRate);
+  short[] buffer=new short[samples];
+
+  for(int i=0;i<samples;i++)
+    buffer[i]=(short)(sin(TWO_PI*freq*i/sampleRate)*32767);
+
+  AudioAttributes attrs=new AudioAttributes.Builder()
+    .setUsage(AudioAttributes.USAGE_MEDIA)
+    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+    .build();
+
+  AudioFormat format=new AudioFormat.Builder()
+    .setSampleRate(sampleRate)
+    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+    .build();
+
+  AudioTrack at=new AudioTrack(
+    attrs,format,
+    buffer.length*2,
+    AudioTrack.MODE_STATIC,
+    AudioManager.AUDIO_SESSION_ID_GENERATE
+  );
+
+  at.write(buffer,0,buffer.length);
+  at.play();
+}
